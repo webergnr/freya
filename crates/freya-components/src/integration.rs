@@ -1,5 +1,5 @@
 use freya_core::{
-    integration::AppComponent,
+    integration::{AppComponent, is_ime_role},
     prelude::*,
 };
 
@@ -9,7 +9,18 @@ const ZOOM_STEP: f64 = 0.10;
 pub fn integration(app: AppComponent) -> impl IntoElement {
     let platform = use_hook(|| Platform::get().current_window());
 
-    let on_global_key_down = move |e: Event<KeyboardEventData>| match &e.key {
+    let on_global_key_down = move |e: Event<KeyboardEventData>| {
+        // a focused text field keeps ⇥ and the arrows: they edit, they don't navigate
+        let in_text = is_ime_role(platform.focused_accessibility_node.peek().role());
+        if in_text
+            && matches!(
+                e.key,
+                Key::Named(NamedKey::Tab | NamedKey::ArrowUp | NamedKey::ArrowDown)
+            )
+        {
+            return;
+        }
+        match &e.key {
         Key::Named(NamedKey::Tab) if e.modifiers == Modifiers::SHIFT => {
             platform.send(UserEvent::FocusAccessibilityNode(
                 AccessibilityFocusStrategy::Backward(AccessibilityFocusMovement::OutsideGroup),
@@ -41,6 +52,7 @@ pub fn integration(app: AppComponent) -> impl IntoElement {
             }
         }
         _ => {}
+        }
     };
 
     rect().on_global_key_down(on_global_key_down).child(app)
