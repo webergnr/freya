@@ -8,8 +8,13 @@ use std::{
 
 use freya_engine::prelude::{
     ClipOp,
+    FilterMode,
+    ImageInfo,
+    MipmapMode,
+    Paint,
     ParagraphBuilder,
     ParagraphStyle,
+    SamplingOptions,
     SkParagraph,
     SkRect,
 };
@@ -299,6 +304,33 @@ impl ElementExt for LabelElement {
         let paragraph = layout_data.downcast_ref::<SkParagraph>().unwrap();
 
         let origin = context.layout_node.inner_area.origin;
+        // Rotated text: Skia's glyph masks stair-step under a rotation, so
+        // rasterise the label unrotated at SS× and let the GPU downsample it
+        // with mipmaps through the rotated matrix.
+        let matrix = context.canvas.local_to_device_as_3x3();
+        if !matrix.is_scale_translate() {
+            const SS: f32 = 4.;
+            let w = (paragraph.max_width().max(paragraph.max_intrinsic_width()) + 2.).ceil();
+            let h = (paragraph.height() + 2.).ceil();
+            let info = ImageInfo::new_n32_premul(((w * SS) as i32, (h * SS) as i32), None);
+            if let Some(mut surface) = context.canvas.new_surface(&info, None) {
+                let c = surface.canvas();
+                c.scale((SS, SS));
+                c.translate((1., 1.));
+                paragraph.paint(c, (0., 0.));
+                let image = surface.image_snapshot();
+                let image = image.with_default_mipmaps().unwrap_or(image);
+                let dst = SkRect::from_xywh(origin.x - 1., origin.y - 1., w, h);
+                context.canvas.draw_image_rect_with_sampling_options(
+                    &image,
+                    None,
+                    dst,
+                    SamplingOptions::new(FilterMode::Linear, MipmapMode::Linear),
+                    &Paint::default(),
+                );
+                return;
+            }
+        }
         paragraph.paint_at(context.canvas, origin.cast_unit());
         if let Some(callback) = context.text_style_state.color.render_callback() {
             let layer = context.canvas.save();
