@@ -375,7 +375,9 @@ impl ElementExt for ParagraphElement {
                 padding: context.torin_node.padding,
             });
 
-        Some((size, Rc::new(())))
+        // The layout keeps this holder, so `render` paints what was measured even after the
+        // tree swaps in a new, unmeasured element of the same node.
+        Some((size, Rc::new(self.sk_paragraph.clone())))
     }
 
     fn should_hook_measurement(&self) -> bool {
@@ -473,7 +475,16 @@ impl ElementExt for ParagraphElement {
     }
 
     fn render(&self, context: RenderContext) {
-        let paragraph = self.sk_paragraph.0.borrow();
+        // Not `self.sk_paragraph`: a change the diff doesn't count as layout (handlers, which
+        // never compare equal, or style alone) replaces the element without measuring it again,
+        // leaving its own holder empty. The layout node holds the one that was measured.
+        let holder = context
+            .layout_node
+            .data
+            .as_ref()
+            .and_then(|data| data.downcast_ref::<ParagraphHolder>())
+            .unwrap();
+        let paragraph = holder.0.borrow();
         let ParagraphHolderInner { paragraph, .. } = paragraph.as_ref().unwrap();
         let inner_area = context.layout_node.inner_area;
 

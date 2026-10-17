@@ -246,3 +246,33 @@ fn inline_element_respects_paragraph_margin() {
     assert!(label_area.min_x() > 20.0);
     assert!(label_area.min_y() >= 19.5);
 }
+
+#[test]
+fn paragraph_with_handler_renders_after_rerender_without_layout_change() {
+    fn app() -> impl IntoElement {
+        let mut pressed = use_state(|| false);
+
+        rect()
+            // Only the style changes, so nothing gets laid out again.
+            .background(if *pressed.read() {
+                Color::RED
+            } else {
+                Color::BLUE
+            })
+            .child(
+                paragraph()
+                    .span("press me")
+                    // Handlers never compare equal, so every render swaps in a new element.
+                    .on_press(move |_| pressed.toggle()),
+            )
+    }
+
+    let mut test = launch(app);
+    test.render();
+
+    test.click_cursor((5.0, 5.0));
+    test.click_cursor((5.0, 5.0));
+
+    // Painting the swapped-in element must not need a measure it never got.
+    test.render();
+}
