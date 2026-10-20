@@ -41,12 +41,16 @@ impl From<MouseEventName> for EventName {
 #[derive(Clone, Debug, PartialEq, Copy, Eq, Hash)]
 pub enum WheelEventName {
     Wheel,
+    /// A trackpad pinch. Carried as a wheel event whose `delta_y` is the
+    /// magnification since the last one: positive as the fingers spread.
+    Pinch,
 }
 
 impl From<WheelEventName> for EventName {
     fn from(value: WheelEventName) -> Self {
         match value {
             WheelEventName::Wheel => EventName::Wheel,
+            WheelEventName::Pinch => EventName::Pinch,
         }
     }
 }

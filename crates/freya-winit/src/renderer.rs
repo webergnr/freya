@@ -1150,6 +1150,20 @@ impl ApplicationHandler<NativeEvent> for WinitRenderer {
                     }
                 }
 
+                // winit only sends it on macOS and iOS
+                WindowEvent::PinchGesture { delta, .. } => {
+                    app.process_platform_events(
+                        vec![PlatformEvent::Wheel {
+                            name: WheelEventName::Pinch,
+                            scroll: (0., delta).into(),
+                            cursor: app.position,
+                            source: WheelSource::Pixel,
+                        }],
+                        &mut self.plugins,
+                        PluginHandle::new(&self.proxy),
+                    );
+                }
+
                 WindowEvent::CursorLeft { .. } => {
                     if std::mem::replace(&mut app.mouse_state, ElementState::Released)
                         == ElementState::Released

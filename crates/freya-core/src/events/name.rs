@@ -38,6 +38,7 @@ pub enum EventName {
     CaptureGlobalPointerUp,
 
     Wheel,
+    Pinch,
 
     Sized,
 

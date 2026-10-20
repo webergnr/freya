@@ -259,6 +259,11 @@ pub trait EventHandlersExt: Sized {
 
         /// Fires when the scroll wheel is used over the element.
         wheel => EventName::Wheel;
+        /// Fires when a trackpad pinch happens over the element. `delta_y` is the
+        /// magnification since the last pinch event, positive as the fingers spread
+        /// (zoom in); `delta_x` is always zero. A pinch is never a wheel event, so
+        /// scroll views don't scroll on it.
+        pinch => EventName::Pinch;
     }
 
     event_handlers! {
