@@ -110,6 +110,8 @@ pub struct CursorStyleData {
     pub color: Color,
     pub highlight_color: Color,
     pub style: CursorStyle,
+    /// How thick the line and underline cursors are, in layout pixels.
+    pub width: f32,
 }
 
 impl Default for CursorStyleData {
@@ -118,6 +120,7 @@ impl Default for CursorStyleData {
             color: Color::BLACK,
             highlight_color: Color::from_argb(128, 87, 108, 188),
             style: CursorStyle::default(),
+            width: 2.,
         }
     }
 }

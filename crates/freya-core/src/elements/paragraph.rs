@@ -609,8 +609,10 @@ impl ElementExt for ParagraphElement {
                 context.text_style_state.text_align,
             );
             match self.cursor_style {
-                CursorStyle::Underline => cursor_rect.top = cursor_rect.bottom - 2.,
-                _ => cursor_rect.right = cursor_rect.left + 2.,
+                CursorStyle::Underline => {
+                    cursor_rect.top = cursor_rect.bottom - self.cursor_style_data.width
+                }
+                _ => cursor_rect.right = cursor_rect.left + self.cursor_style_data.width,
             }
             context
                 .canvas
@@ -1085,6 +1087,14 @@ impl Paragraph {
     /// Set the color used to highlight selected text. See [`Color`].
     pub fn highlight_color(mut self, highlight_color: impl Into<Color>) -> Self {
         self.element.cursor_style_data.highlight_color = highlight_color.into();
+        self
+    }
+
+    /// Set how thick the line and underline cursors are, in layout pixels
+    /// (default `2.0`). A paragraph drawn scaled can keep a thin cursor on
+    /// screen by dividing by its scale.
+    pub fn cursor_width(mut self, cursor_width: f32) -> Self {
+        self.element.cursor_style_data.width = cursor_width;
         self
     }
 
