@@ -199,6 +199,7 @@ impl Component for ScrollView {
     fn render(self: &ScrollView) -> impl IntoElement {
         let a11y_id = use_a11y();
         let mut timeout = use_timeout(|| Duration::from_millis(800));
+        let mut hovering_view = use_state(|| false);
         let mut pressing_shift = use_state(|| false);
         let mut clicking_scrollbar = use_state::<Option<(Axis, f64)>>(|| None);
         let mut size = use_state(SizedEventData::default);
@@ -484,6 +485,9 @@ impl Component for ScrollView {
             .on_wheel(on_wheel)
             .on_capture_global_pointer_up(on_capture_global_pointer_up)
             .on_mouse_move(on_mouse_move)
+            // Every move, not `on_pointer_over`: a press marks the view hovered without an over event.
+            .on_pointer_move(move |_| hovering_view.set_if_modified(true))
+            .on_pointer_out(move |_| hovering_view.set_if_modified(false))
             .on_capture_global_pointer_move(on_capture_global_pointer_move)
             .on_key_down(on_key_down)
             .on_global_key_up(on_global_key_up)
@@ -520,6 +524,7 @@ impl Component for ScrollView {
                             scroll_controller,
                             timeout,
                             auto_hide_scrollbars: self.auto_hide_scrollbars,
+                            hovering_view,
                             clicking_scrollbar,
                             thumb_events: ScrollBarThumbEvents::new(Axis::Y, clicking_scrollbar),
                             thumb_offset: scrollbar_y,
@@ -537,6 +542,7 @@ impl Component for ScrollView {
                     scroll_controller,
                     timeout,
                     auto_hide_scrollbars: self.auto_hide_scrollbars,
+                    hovering_view,
                     clicking_scrollbar,
                     thumb_events: ScrollBarThumbEvents::new(Axis::X, clicking_scrollbar),
                     thumb_offset: scrollbar_x,

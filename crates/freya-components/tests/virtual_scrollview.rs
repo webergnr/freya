@@ -24,8 +24,15 @@ fn virtual_scroll_view_auto_hide_scrollbars() {
                 .map(|_| node)
         });
         assert_eq!(scrollbars.len(), 1);
-        assert!(scrollbars[0].layout().area.width() > 0.);
-        assert!(scrollbars[0].layout().area.height() > 0.);
+        // Auto-hidden scrollbars wait for the pointer.
+        assert_eq!(
+            scrollbars[0].layout().area.width() > 0.,
+            !auto_hide_scrollbars
+        );
+        assert_eq!(
+            scrollbars[0].layout().area.height() > 0.,
+            !auto_hide_scrollbars
+        );
 
         test.poll(Duration::from_millis(20), Duration::from_millis(1000));
 
@@ -593,6 +600,7 @@ pub fn virtual_scroll_view_keyboard_navigation() {
     );
 
     // Focus the scrollview without changing its scroll position.
+    test.move_cursor((495., 20.));
     test.press_cursor((495., 20.));
     test.sync_and_update();
     test.move_cursor((495., 20.));
@@ -698,6 +706,7 @@ pub fn virtual_scroll_view_keyboard_navigation_horizontal() {
     );
 
     // Focus the scrollview without changing its scroll position.
+    test.move_cursor((20., 495.));
     test.press_cursor((20., 495.));
     test.sync_and_update();
     test.move_cursor((20., 495.));

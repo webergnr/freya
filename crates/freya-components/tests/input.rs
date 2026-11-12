@@ -235,6 +235,8 @@ pub fn input_multiline_scrollbar_press_test() {
     let mut test = launch_test(scrollbar_app);
     test.sync_and_update();
 
+    // The scrollbar only shows once the pointer has moved over the input.
+    test.move_cursor((292.0, 30.0));
     test.click_cursor((100.0, 40.0));
     test.press_cursor((292.0, 30.0));
     test.move_cursor((100.0, 90.0));

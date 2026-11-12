@@ -63,6 +63,8 @@ pub struct ScrollBarContext {
     pub timeout: Timeout,
     /// Whether idle scrollbars should hide when the timeout elapses.
     pub auto_hide_scrollbars: bool,
+    /// Whether the pointer is over the scroll view. Auto-hidden scrollbars only show while it is.
+    pub hovering_view: State<bool>,
     pub clicking_scrollbar: State<Option<(Axis, f64)>>,
     pub thumb_events: ScrollBarThumbEvents,
     pub thumb_offset: f32,
@@ -147,6 +149,7 @@ impl ComponentOwned for ScrollBar {
             axis,
             timeout,
             auto_hide_scrollbars,
+            hovering_view,
             clicking_scrollbar,
             thumb_events,
             thumb_offset,
@@ -156,7 +159,8 @@ impl ComponentOwned for ScrollBar {
         } = context;
         let mut hovering = use_state(|| false);
         let is_expanded = clicking_scrollbar.read().is_some() || *hovering.read();
-        let is_hidden = auto_hide_scrollbars && timeout.elapsed() && !is_expanded;
+        let is_hidden =
+            auto_hide_scrollbars && !is_expanded && (!*hovering_view.read() || timeout.elapsed());
 
         let animation = use_animation_with_dependencies(&is_expanded, move |conf, is_expanded| {
             conf.on_creation(OnCreation::Finish);

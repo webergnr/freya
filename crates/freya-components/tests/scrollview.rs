@@ -22,9 +22,10 @@ fn scroll_view_auto_hide_scrollbars() {
                 .map(|_| node)
         });
         assert_eq!(scrollbars.len(), 2);
+        // Auto-hidden scrollbars wait for the pointer.
         for scrollbar in &scrollbars {
-            assert!(scrollbar.layout().area.width() > 0.);
-            assert!(scrollbar.layout().area.height() > 0.);
+            assert_eq!(scrollbar.layout().area.width() > 0., !auto_hide_scrollbars);
+            assert_eq!(scrollbar.layout().area.height() > 0., !auto_hide_scrollbars);
         }
 
         test.poll(Duration::from_millis(20), Duration::from_millis(1000));
@@ -66,6 +67,8 @@ fn scroll_view_mixed_auto_hide_scrollbars() {
             .map(|_| node)
     });
     assert_eq!(scrollbars.len(), 2);
+    // The first move shows the scrollbar, the second one hovers it.
+    test.move_cursor((495., 20.));
     test.move_cursor((495., 20.));
     test.sync_and_update();
     test.poll(Duration::from_millis(20), Duration::from_secs(2));
