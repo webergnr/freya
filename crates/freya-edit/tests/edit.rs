@@ -1976,3 +1976,49 @@ fn control_bindings_on_macos() {
         assert_eq!(editor.get_selection(), Some((0, 3)), "Ctrl+A selects all");
     });
 }
+
+#[test]
+fn undo_groups_typing_until_a_pause() {
+    fn app() -> impl IntoElement {
+        let mut editable = use_editable(String::new, EditableConfig::new);
+        let on_global_key_down = move |e: Event<KeyboardEventData>| {
+            editable.process_event(EditableEvent::KeyDown {
+                key: &e.key,
+                modifiers: e.modifiers,
+                editor_line: None,
+                holder: None,
+            });
+        };
+
+        rect()
+            .on_global_key_down(on_global_key_down)
+            .child(label().text(editable.editor().read().to_string()))
+    }
+
+    let mut utils = launch_test(app);
+    // About 60 ms between keys: brisk human typing
+    let type_word = |utils: &mut TestingRunner, word: &str| {
+        for c in word.chars() {
+            utils.write_text(c);
+            std::thread::sleep(Duration::from_millis(60));
+        }
+    };
+    let undo = |utils: &mut TestingRunner| {
+        utils.send_event(PlatformEvent::Keyboard {
+            name: KeyboardEventName::KeyDown,
+            key: Key::Character("z".to_string()),
+            code: Code::KeyZ,
+            modifiers: Modifiers::ctrl_or_meta(),
+        });
+        utils.sync_and_update();
+        utils.find(|_, e| Some(Label::try_downcast(e)?.text.to_string()))
+    };
+
+    type_word(&mut utils, "hello");
+    // A pause longer than the 300 ms group starts a new undo step
+    std::thread::sleep(Duration::from_millis(400));
+    type_word(&mut utils, " world");
+
+    assert_eq!(undo(&mut utils).as_deref(), Some("hello"));
+    assert_eq!(undo(&mut utils).as_deref(), Some(""));
+}

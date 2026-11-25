@@ -521,6 +521,11 @@ impl Component for Input {
                     movement_timeout.reset();
                     let previous_history_version =
                         editable.editor().peek().editor_history().version;
+                    // Restored if the validator rejects the key: an undo would also take
+                    // back the keys typed just before, grouped in the same transaction.
+                    let before = on_validate
+                        .is_some()
+                        .then(|| editable.editor().peek().clone());
                     editable.process_event(EditableEvent::KeyDown {
                         key: &key,
                         modifiers,
@@ -534,11 +539,10 @@ impl Component for Input {
                             let mut editor = editable.editor_mut().write();
                             let validator = InputValidator::new(text.clone());
                             on_validate.call(validator.clone());
-                            if !validator.is_valid() {
-                                if let Some(selection) = editor.undo() {
-                                    *editor.selection_mut() = selection;
-                                }
-                                editor.editor_history_mut().clear_redos();
+                            if !validator.is_valid()
+                                && let Some(before) = before
+                            {
+                                *editor = before;
                             }
                             validator.is_valid()
                         }

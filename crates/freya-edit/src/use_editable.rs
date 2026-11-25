@@ -26,7 +26,8 @@ impl UseEditable {
             content,
             TextSelection::new_cursor(0),
             config.indentation,
-            EditorHistory::new(Duration::from_millis(10)),
+            // Group edits less than 300 ms apart into one undo step, like Zed
+            EditorHistory::new(Duration::from_millis(300)),
         ));
         let dragging = State::create(TextDragging::default());
 
