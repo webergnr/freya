@@ -1930,3 +1930,49 @@ fn redo_and_shortcuts_never_type_off_macos() {
         assert_eq!(editor.to_string(), "X/€abc", "AltGr keeps typing");
     });
 }
+
+#[test]
+fn control_bindings_on_macos() {
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("one\ntwo three\nfour", 6);
+        key(&mut editor, chr("a"), Modifiers::CONTROL);
+        assert_eq!(editor.cursor_pos(), 4, "^a moveToBeginningOfParagraph:");
+        key(&mut editor, chr("e"), Modifiers::CONTROL);
+        assert_eq!(editor.cursor_pos(), 13, "^e moveToEndOfParagraph:");
+        key(&mut editor, chr("A"), Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(
+            editor.get_selection(),
+            Some((13, 4)),
+            "^A extends the selection"
+        );
+        assert_eq!(editor.to_string(), "one\ntwo three\nfour");
+
+        let mut editor = editor_at("abcd", 2);
+        key(&mut editor, chr("d"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "abd", "^d deleteForward:");
+        key(&mut editor, chr("h"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "ad", "^h deleteBackward:");
+
+        let mut editor = editor_at("one two\nthree", 3);
+        key(&mut editor, chr("k"), Modifiers::CONTROL);
+        assert_eq!(
+            editor.to_string(),
+            "one\nthree",
+            "^k deleteToEndOfParagraph:"
+        );
+        key(&mut editor, chr("k"), Modifiers::CONTROL);
+        assert_eq!(
+            editor.to_string(),
+            "onethree",
+            "^k at the end joins the next one"
+        );
+        assert_eq!(editor.cursor_pos(), 3);
+    });
+
+    // Elsewhere Ctrl is the command key
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("abc", 1);
+        key(&mut editor, chr("a"), Modifiers::CONTROL);
+        assert_eq!(editor.get_selection(), Some((0, 3)), "Ctrl+A selects all");
+    });
+}

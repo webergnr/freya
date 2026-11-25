@@ -584,6 +584,24 @@ pub trait TextEditor {
         let word_jump = modifiers.contains(Modifiers::ctrl_or_alt());
         let is_macos = TargetPlatform::get() == TargetPlatform::MacOs;
 
+        // macOS Control bindings from AppKit's StandardKeyBinding.dict: ^a
+        // moveToBeginningOfParagraph:, ^e moveToEndOfParagraph: (⇧ extends the selection),
+        // ^d deleteForward:, ^h deleteBackward:. ^k is handled with the characters below.
+        let mac_control = is_macos
+            && modifiers.contains(Modifiers::CONTROL)
+            && !modifiers.intersects(Modifiers::META | Modifiers::ALT);
+        let control_key = match key {
+            Key::Character(character) if mac_control => match character.as_str() {
+                "a" | "A" => Some(Key::Named(NamedKey::Home)),
+                "e" | "E" => Some(Key::Named(NamedKey::End)),
+                "d" => Some(Key::Named(NamedKey::Delete)),
+                "h" => Some(Key::Named(NamedKey::Backspace)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let key = control_key.as_ref().unwrap_or(key);
+
         match key {
             Key::Named(NamedKey::Shift) => {}
             Key::Named(NamedKey::Control) => {}
@@ -824,6 +842,27 @@ pub trait TextEditor {
                             *self.selection_mut() = selection;
                             event.insert(TextEvent::TEXT_CHANGED);
                             event.insert(TextEvent::SELECTION_CHANGED);
+                        }
+                    }
+
+                    // ^k deleteToEndOfParagraph: (no kill ring), joining the next paragraph
+                    // when already at the end of one
+                    "k" if mac_control && allow_changes => {
+                        let cursor_pos = self.cursor_pos();
+                        let removal = if let Some((start, end)) = self.get_selection_range() {
+                            start..end
+                        } else {
+                            match self.line_end_position(self.cursor_row()) {
+                                Some(end) if end > cursor_pos => cursor_pos..end,
+                                _ => cursor_pos..self.grapheme_cluster_at(cursor_pos).end,
+                            }
+                        };
+
+                        if !removal.is_empty() {
+                            let start = removal.start;
+                            self.remove(removal);
+                            self.move_cursor_to(start);
+                            event.insert(TextEvent::TEXT_CHANGED);
                         }
                     }
 
