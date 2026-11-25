@@ -695,12 +695,18 @@ pub trait TextEditor {
             }
             Key::Named(NamedKey::Backspace) if allow_changes => {
                 let cursor_pos = self.cursor_pos();
+                // The line start Home goes to
+                let line_start = self.char_to_utf16_cu(self.line_to_char(self.cursor_row()));
 
                 let removal = if let Some((start, end)) = self.get_selection_range() {
                     Some(start..end)
                 } else if word_jump {
                     self.prev_word_pos(cursor_pos)
                         .map(|start| start..cursor_pos)
+                } else if is_macos && modifiers.contains(Modifiers::META) && line_start < cursor_pos
+                {
+                    // ⌘⌫, StandardKeyBinding.dict "@\x7f" deleteToBeginningOfLine:
+                    Some(line_start..cursor_pos)
                 } else if cursor_pos > 0 {
                     Some(self.grapheme_cluster_at(cursor_pos - 1).start..cursor_pos)
                 } else {

@@ -2050,3 +2050,26 @@ fn arrows_collapse_a_selection_to_its_edge() {
         );
     }
 }
+
+#[test]
+fn cmd_backspace_deletes_to_the_line_start_on_macos() {
+    let backspace = || Key::Named(NamedKey::Backspace);
+
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("one\nhello world\nnext", 15);
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "one\n\nnext");
+        assert_eq!(editor.cursor_pos(), 4);
+
+        // At the line start it deletes the line break, like ⌫
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "one\nnext");
+        assert_eq!(editor.cursor_pos(), 3);
+    });
+
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("hello world", 11);
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "hello worl", "unchanged off macOS");
+    });
+}
