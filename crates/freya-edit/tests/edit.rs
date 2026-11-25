@@ -1853,3 +1853,80 @@ fn home_end_navigation() {
     press(&mut editor, NamedKey::End, Modifiers::SHIFT);
     assert_eq!(editor.get_selection(), Some((0, 16)));
 }
+
+/// Run `f` with [`TargetPlatform::get`] reporting `platform`, so one host tests every OS's keys.
+fn on_platform<T>(platform: TargetPlatform, f: impl FnOnce() -> T) -> T {
+    fn app() -> impl IntoElement {
+        rect()
+    }
+    let (runner, _) = TestingRunner::new(
+        app,
+        (100., 100.).into(),
+        |runner| runner.provide_root_context(|| platform),
+        1.,
+    );
+    runner.run_in(f)
+}
+
+fn editor_at(text: &str, cursor: usize) -> RopeEditor {
+    RopeEditor::new(
+        text.to_string(),
+        TextSelection::new_cursor(cursor),
+        4,
+        EditorHistory::new(Duration::ZERO),
+    )
+}
+
+fn key(editor: &mut RopeEditor, key: Key, modifiers: Modifiers) {
+    editor.process_key(&key, &modifiers, None, None, false, true, true, true);
+}
+
+fn chr(c: &str) -> Key {
+    Key::Character(c.to_string())
+}
+
+#[test]
+fn redo_and_shortcuts_never_type_on_macos() {
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("abc", 0);
+        key(&mut editor, chr("X"), Modifiers::empty());
+        key(&mut editor, chr("z"), Modifiers::META);
+        assert_eq!(editor.to_string(), "abc");
+
+        // ⌘⇧Z arrives as "Z"
+        key(&mut editor, chr("Z"), Modifiers::META | Modifiers::SHIFT);
+        assert_eq!(editor.to_string(), "Xabc", "⌘⇧Z redoes");
+
+        // ⌘ or ⌃ with a key never types it, ⌥ does (⌥2 = ™)
+        key(&mut editor, chr("b"), Modifiers::META);
+        key(&mut editor, chr("q"), Modifiers::CONTROL);
+        key(&mut editor, chr(" "), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc");
+        key(&mut editor, chr("™"), Modifiers::ALT);
+        assert_eq!(editor.to_string(), "X™abc");
+    });
+}
+
+#[test]
+fn redo_and_shortcuts_never_type_off_macos() {
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("abc", 0);
+        key(&mut editor, chr("X"), Modifiers::empty());
+        key(&mut editor, chr("z"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "abc");
+        key(&mut editor, chr("y"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+Y redoes");
+
+        key(&mut editor, chr("z"), Modifiers::CONTROL);
+        key(&mut editor, chr("z"), Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+Shift+Z redoes");
+
+        key(&mut editor, chr("b"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+B never types");
+
+        // Ctrl+Alt is AltGr: ABNT2 AltGr+Q = "/", AltGr+E = "€"
+        key(&mut editor, chr("/"), Modifiers::CONTROL | Modifiers::ALT);
+        key(&mut editor, chr("€"), Modifiers::CONTROL | Modifiers::ALT);
+        assert_eq!(editor.to_string(), "X/€abc", "AltGr keeps typing");
+    });
+}
