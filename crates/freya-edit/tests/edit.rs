@@ -1853,3 +1853,223 @@ fn home_end_navigation() {
     press(&mut editor, NamedKey::End, Modifiers::SHIFT);
     assert_eq!(editor.get_selection(), Some((0, 16)));
 }
+
+/// Run `f` with [`TargetPlatform::get`] reporting `platform`, so one host tests every OS's keys.
+fn on_platform<T>(platform: TargetPlatform, f: impl FnOnce() -> T) -> T {
+    fn app() -> impl IntoElement {
+        rect()
+    }
+    let (runner, _) = TestingRunner::new(
+        app,
+        (100., 100.).into(),
+        |runner| runner.provide_root_context(|| platform),
+        1.,
+    );
+    runner.run_in(f)
+}
+
+fn editor_at(text: &str, cursor: usize) -> RopeEditor {
+    RopeEditor::new(
+        text.to_string(),
+        TextSelection::new_cursor(cursor),
+        4,
+        EditorHistory::new(Duration::ZERO),
+    )
+}
+
+fn key(editor: &mut RopeEditor, key: Key, modifiers: Modifiers) {
+    editor.process_key(&key, &modifiers, None, None, false, true, true, true);
+}
+
+fn chr(c: &str) -> Key {
+    Key::Character(c.to_string())
+}
+
+#[test]
+fn redo_and_shortcuts_never_type_on_macos() {
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("abc", 0);
+        key(&mut editor, chr("X"), Modifiers::empty());
+        key(&mut editor, chr("z"), Modifiers::META);
+        assert_eq!(editor.to_string(), "abc");
+
+        // ⌘⇧Z arrives as "Z"
+        key(&mut editor, chr("Z"), Modifiers::META | Modifiers::SHIFT);
+        assert_eq!(editor.to_string(), "Xabc", "⌘⇧Z redoes");
+
+        // ⌘ or ⌃ with a key never types it, ⌥ does (⌥2 = ™)
+        key(&mut editor, chr("b"), Modifiers::META);
+        key(&mut editor, chr("q"), Modifiers::CONTROL);
+        key(&mut editor, chr(" "), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc");
+        key(&mut editor, chr("™"), Modifiers::ALT);
+        assert_eq!(editor.to_string(), "X™abc");
+    });
+}
+
+#[test]
+fn redo_and_shortcuts_never_type_off_macos() {
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("abc", 0);
+        key(&mut editor, chr("X"), Modifiers::empty());
+        key(&mut editor, chr("z"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "abc");
+        key(&mut editor, chr("y"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+Y redoes");
+
+        key(&mut editor, chr("z"), Modifiers::CONTROL);
+        key(&mut editor, chr("z"), Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+Shift+Z redoes");
+
+        key(&mut editor, chr("b"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "Xabc", "Ctrl+B never types");
+
+        // Ctrl+Alt is AltGr: ABNT2 AltGr+Q = "/", AltGr+E = "€"
+        key(&mut editor, chr("/"), Modifiers::CONTROL | Modifiers::ALT);
+        key(&mut editor, chr("€"), Modifiers::CONTROL | Modifiers::ALT);
+        assert_eq!(editor.to_string(), "X/€abc", "AltGr keeps typing");
+    });
+}
+
+#[test]
+fn control_bindings_on_macos() {
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("one\ntwo three\nfour", 6);
+        key(&mut editor, chr("a"), Modifiers::CONTROL);
+        assert_eq!(editor.cursor_pos(), 4, "^a moveToBeginningOfParagraph:");
+        key(&mut editor, chr("e"), Modifiers::CONTROL);
+        assert_eq!(editor.cursor_pos(), 13, "^e moveToEndOfParagraph:");
+        key(&mut editor, chr("A"), Modifiers::CONTROL | Modifiers::SHIFT);
+        assert_eq!(
+            editor.get_selection(),
+            Some((13, 4)),
+            "^A extends the selection"
+        );
+        assert_eq!(editor.to_string(), "one\ntwo three\nfour");
+
+        let mut editor = editor_at("abcd", 2);
+        key(&mut editor, chr("d"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "abd", "^d deleteForward:");
+        key(&mut editor, chr("h"), Modifiers::CONTROL);
+        assert_eq!(editor.to_string(), "ad", "^h deleteBackward:");
+
+        let mut editor = editor_at("one two\nthree", 3);
+        key(&mut editor, chr("k"), Modifiers::CONTROL);
+        assert_eq!(
+            editor.to_string(),
+            "one\nthree",
+            "^k deleteToEndOfParagraph:"
+        );
+        key(&mut editor, chr("k"), Modifiers::CONTROL);
+        assert_eq!(
+            editor.to_string(),
+            "onethree",
+            "^k at the end joins the next one"
+        );
+        assert_eq!(editor.cursor_pos(), 3);
+    });
+
+    // Elsewhere Ctrl is the command key
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("abc", 1);
+        key(&mut editor, chr("a"), Modifiers::CONTROL);
+        assert_eq!(editor.get_selection(), Some((0, 3)), "Ctrl+A selects all");
+    });
+}
+
+#[test]
+fn undo_groups_typing_until_a_pause() {
+    fn app() -> impl IntoElement {
+        let mut editable = use_editable(String::new, EditableConfig::new);
+        let on_global_key_down = move |e: Event<KeyboardEventData>| {
+            editable.process_event(EditableEvent::KeyDown {
+                key: &e.key,
+                modifiers: e.modifiers,
+                editor_line: None,
+                holder: None,
+            });
+        };
+
+        rect()
+            .on_global_key_down(on_global_key_down)
+            .child(label().text(editable.editor().read().to_string()))
+    }
+
+    let mut utils = launch_test(app);
+    // About 60 ms between keys: brisk human typing
+    let type_word = |utils: &mut TestingRunner, word: &str| {
+        for c in word.chars() {
+            utils.write_text(c);
+            std::thread::sleep(Duration::from_millis(60));
+        }
+    };
+    let undo = |utils: &mut TestingRunner| {
+        utils.send_event(PlatformEvent::Keyboard {
+            name: KeyboardEventName::KeyDown,
+            key: Key::Character("z".to_string()),
+            code: Code::KeyZ,
+            modifiers: Modifiers::ctrl_or_meta(),
+        });
+        utils.sync_and_update();
+        utils.find(|_, e| Some(Label::try_downcast(e)?.text.to_string()))
+    };
+
+    type_word(&mut utils, "hello");
+    // A pause longer than the 300 ms group starts a new undo step
+    std::thread::sleep(Duration::from_millis(400));
+    type_word(&mut utils, " world");
+
+    assert_eq!(undo(&mut utils).as_deref(), Some("hello"));
+    assert_eq!(undo(&mut utils).as_deref(), Some(""));
+}
+
+#[test]
+fn arrows_collapse_a_selection_to_its_edge() {
+    let left = Key::Named(NamedKey::ArrowLeft);
+    let right = Key::Named(NamedKey::ArrowRight);
+    let select = |from: usize, arrow: &Key| {
+        let mut editor = editor_at("abcdef", from);
+        for _ in 0..3 {
+            key(&mut editor, arrow.clone(), Modifiers::SHIFT);
+        }
+        editor
+    };
+
+    for (from, made_with, collapse_with, lands) in [
+        (0, &right, &left, 0),
+        (0, &right, &right, 3),
+        (3, &left, &left, 0),
+        (3, &left, &right, 3),
+    ] {
+        let mut editor = select(from, made_with);
+        key(&mut editor, collapse_with.clone(), Modifiers::empty());
+        assert_eq!(
+            (editor.cursor_pos(), editor.get_selection()),
+            (lands, None),
+            "selection made with {made_with:?} from {from}, then {collapse_with:?}"
+        );
+    }
+}
+
+#[test]
+fn cmd_backspace_deletes_to_the_line_start_on_macos() {
+    let backspace = || Key::Named(NamedKey::Backspace);
+
+    on_platform(TargetPlatform::MacOs, || {
+        let mut editor = editor_at("one\nhello world\nnext", 15);
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "one\n\nnext");
+        assert_eq!(editor.cursor_pos(), 4);
+
+        // At the line start it deletes the line break, like ⌫
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "one\nnext");
+        assert_eq!(editor.cursor_pos(), 3);
+    });
+
+    on_platform(TargetPlatform::Windows, || {
+        let mut editor = editor_at("hello world", 11);
+        key(&mut editor, backspace(), Modifiers::META);
+        assert_eq!(editor.to_string(), "hello worl", "unchanged off macOS");
+    });
+}

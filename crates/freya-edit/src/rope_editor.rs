@@ -31,6 +31,7 @@ pub struct PreeditState {
 }
 
 /// TextEditor implementing a Rope
+#[derive(Clone)]
 pub struct RopeEditor {
     pub(crate) rope: Rope,
     pub(crate) selection: TextSelection,

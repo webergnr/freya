@@ -110,6 +110,40 @@ pub fn input_validator_test() {
 }
 
 #[test]
+pub fn input_validator_rejects_only_the_last_key() {
+    fn validator_app() -> impl IntoElement {
+        let value = use_state(String::new);
+
+        rect()
+            .child(
+                Input::new(value).on_validate(move |validator: InputValidator| {
+                    if !validator.text().chars().all(|c| c.is_ascii_digit()) {
+                        validator.set_valid(false);
+                    }
+                }),
+            )
+            .child(format!("value={}", value.read()))
+    }
+
+    let mut test = launch_test(validator_app);
+    test.click_cursor((15.0, 15.0));
+
+    // Typed faster than the undo group, so the rejected key shares a transaction
+    // with the digits before it
+    test.write_text("1");
+    test.write_text("2");
+    test.write_text("a");
+    test.write_text("3");
+
+    let label = test.find(|_, element| {
+        Label::try_downcast(element)
+            .map(|label| label.text.to_string())
+            .filter(|text| text.starts_with("value="))
+    });
+    assert_eq!(label.as_deref(), Some("value=123"));
+}
+
+#[test]
 pub fn input_submit_test() {
     fn submit_app() -> impl IntoElement {
         let value = use_state(String::new);

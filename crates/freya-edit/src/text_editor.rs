@@ -13,6 +13,7 @@ use freya_core::{
         ParagraphHolderInner,
     },
     events::modifiers::ModifiersExt,
+    platform::TargetPlatform,
 };
 use keyboard_types::{
     Key,
@@ -581,6 +582,25 @@ pub trait TextEditor {
         let selection = self.get_selection();
         let skip_arrows_movement = !modifiers.contains(Modifiers::SHIFT) && selection.is_some();
         let word_jump = modifiers.contains(Modifiers::ctrl_or_alt());
+        let is_macos = TargetPlatform::get() == TargetPlatform::MacOs;
+
+        // macOS Control bindings from AppKit's StandardKeyBinding.dict: ^a
+        // moveToBeginningOfParagraph:, ^e moveToEndOfParagraph: (⇧ extends the selection),
+        // ^d deleteForward:, ^h deleteBackward:. ^k is handled with the characters below.
+        let mac_control = is_macos
+            && modifiers.contains(Modifiers::CONTROL)
+            && !modifiers.intersects(Modifiers::META | Modifiers::ALT);
+        let control_key = match key {
+            Key::Character(character) if mac_control => match character.as_str() {
+                "a" | "A" => Some(Key::Named(NamedKey::Home)),
+                "e" | "E" => Some(Key::Named(NamedKey::End)),
+                "d" => Some(Key::Named(NamedKey::Delete)),
+                "h" => Some(Key::Named(NamedKey::Backspace)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let key = control_key.as_ref().unwrap_or(key);
 
         match key {
             Key::Named(NamedKey::Shift) => {}
@@ -603,8 +623,9 @@ pub trait TextEditor {
             Key::Named(NamedKey::ArrowLeft) => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     self.selection_mut().set_as_range();
-                } else {
-                    self.selection_mut().set_as_cursor();
+                } else if let Some((start, _)) = self.get_selection_range() {
+                    // A selection collapses to its start, whichever way it was made
+                    *self.selection_mut() = TextSelection::new_cursor(start);
                 }
 
                 let moved = !skip_arrows_movement
@@ -621,8 +642,9 @@ pub trait TextEditor {
             Key::Named(NamedKey::ArrowRight) => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     self.selection_mut().set_as_range();
-                } else {
-                    self.selection_mut().set_as_cursor();
+                } else if let Some((_, end)) = self.get_selection_range() {
+                    // A selection collapses to its end, whichever way it was made
+                    *self.selection_mut() = TextSelection::new_cursor(end);
                 }
 
                 let moved = !skip_arrows_movement
@@ -673,12 +695,18 @@ pub trait TextEditor {
             }
             Key::Named(NamedKey::Backspace) if allow_changes => {
                 let cursor_pos = self.cursor_pos();
+                // The line start Home goes to
+                let line_start = self.char_to_utf16_cu(self.line_to_char(self.cursor_row()));
 
                 let removal = if let Some((start, end)) = self.get_selection_range() {
                     Some(start..end)
                 } else if word_jump {
                     self.prev_word_pos(cursor_pos)
                         .map(|start| start..cursor_pos)
+                } else if is_macos && modifiers.contains(Modifiers::META) && line_start < cursor_pos
+                {
+                    // ⌘⌫, StandardKeyBinding.dict "@\x7f" deleteToBeginningOfLine:
+                    Some(line_start..cursor_pos)
                 } else if cursor_pos > 0 {
                     Some(self.grapheme_cluster_at(cursor_pos - 1).start..cursor_pos)
                 } else {
@@ -731,9 +759,16 @@ pub trait TextEditor {
             }
             Key::Character(character) => {
                 let meta_or_ctrl = modifiers.contains(Modifiers::ctrl_or_meta());
+                // ⌘ or ⌃ on macOS. Elsewhere Ctrl+Alt is AltGr (Windows ABNT2: AltGr+Q = "/",
+                // AltGr+E = "€"), so only Ctrl without Alt is a shortcut.
+                let shortcut = if is_macos {
+                    modifiers.intersects(Modifiers::META | Modifiers::CONTROL)
+                } else {
+                    modifiers.contains(Modifiers::CONTROL) && !modifiers.contains(Modifiers::ALT)
+                };
 
                 match character.as_str() {
-                    " " if allow_changes => {
+                    " " if allow_changes && !shortcut => {
                         let selection = self.get_selection_range();
                         if let Some((start, end)) = selection {
                             self.remove(start..end);
@@ -791,6 +826,22 @@ pub trait TextEditor {
                         }
                     }
 
+                    // Redo last change: ⌘⇧Z on macOS, Ctrl+Y or Ctrl+Shift+Z elsewhere.
+                    // With ⇧ held the letter arrives as "Z".
+                    "y" | "z" | "Z"
+                        if meta_or_ctrl
+                            && allow_changes
+                            && (character == "y" || modifiers.contains(Modifiers::SHIFT)) =>
+                    {
+                        let redo_result = self.redo();
+
+                        if let Some(selection) = redo_result {
+                            *self.selection_mut() = selection;
+                            event.insert(TextEvent::TEXT_CHANGED);
+                            event.insert(TextEvent::SELECTION_CHANGED);
+                        }
+                    }
+
                     // Undo last change
                     "z" if meta_or_ctrl && allow_changes => {
                         let undo_result = self.undo();
@@ -802,16 +853,29 @@ pub trait TextEditor {
                         }
                     }
 
-                    // Redo last change
-                    "y" if meta_or_ctrl && allow_changes => {
-                        let redo_result = self.redo();
+                    // ^k deleteToEndOfParagraph: (no kill ring), joining the next paragraph
+                    // when already at the end of one
+                    "k" if mac_control && allow_changes => {
+                        let cursor_pos = self.cursor_pos();
+                        let removal = if let Some((start, end)) = self.get_selection_range() {
+                            start..end
+                        } else {
+                            match self.line_end_position(self.cursor_row()) {
+                                Some(end) if end > cursor_pos => cursor_pos..end,
+                                _ => cursor_pos..self.grapheme_cluster_at(cursor_pos).end,
+                            }
+                        };
 
-                        if let Some(selection) = redo_result {
-                            *self.selection_mut() = selection;
+                        if !removal.is_empty() {
+                            let start = removal.start;
+                            self.remove(removal);
+                            self.move_cursor_to(start);
                             event.insert(TextEvent::TEXT_CHANGED);
-                            event.insert(TextEvent::SELECTION_CHANGED);
                         }
                     }
+
+                    // A shortcut never types its key
+                    _ if shortcut => {}
 
                     _ if allow_changes => {
                         // Remove selected text
