@@ -2022,3 +2022,31 @@ fn undo_groups_typing_until_a_pause() {
     assert_eq!(undo(&mut utils).as_deref(), Some("hello"));
     assert_eq!(undo(&mut utils).as_deref(), Some(""));
 }
+
+#[test]
+fn arrows_collapse_a_selection_to_its_edge() {
+    let left = Key::Named(NamedKey::ArrowLeft);
+    let right = Key::Named(NamedKey::ArrowRight);
+    let select = |from: usize, arrow: &Key| {
+        let mut editor = editor_at("abcdef", from);
+        for _ in 0..3 {
+            key(&mut editor, arrow.clone(), Modifiers::SHIFT);
+        }
+        editor
+    };
+
+    for (from, made_with, collapse_with, lands) in [
+        (0, &right, &left, 0),
+        (0, &right, &right, 3),
+        (3, &left, &left, 0),
+        (3, &left, &right, 3),
+    ] {
+        let mut editor = select(from, made_with);
+        key(&mut editor, collapse_with.clone(), Modifiers::empty());
+        assert_eq!(
+            (editor.cursor_pos(), editor.get_selection()),
+            (lands, None),
+            "selection made with {made_with:?} from {from}, then {collapse_with:?}"
+        );
+    }
+}

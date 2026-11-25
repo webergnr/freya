@@ -623,8 +623,9 @@ pub trait TextEditor {
             Key::Named(NamedKey::ArrowLeft) => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     self.selection_mut().set_as_range();
-                } else {
-                    self.selection_mut().set_as_cursor();
+                } else if let Some((start, _)) = self.get_selection_range() {
+                    // A selection collapses to its start, whichever way it was made
+                    *self.selection_mut() = TextSelection::new_cursor(start);
                 }
 
                 let moved = !skip_arrows_movement
@@ -641,8 +642,9 @@ pub trait TextEditor {
             Key::Named(NamedKey::ArrowRight) => {
                 if modifiers.contains(Modifiers::SHIFT) {
                     self.selection_mut().set_as_range();
-                } else {
-                    self.selection_mut().set_as_cursor();
+                } else if let Some((_, end)) = self.get_selection_range() {
+                    // A selection collapses to its end, whichever way it was made
+                    *self.selection_mut() = TextSelection::new_cursor(end);
                 }
 
                 let moved = !skip_arrows_movement
